@@ -1,12 +1,65 @@
 from flask import Flask, render_template, Response
-from app.camera import Camera
+import cv2
+import tensorflow as tf
+import numpy as np
 
 app = Flask(__name__)
+gender_model = tf.keras.models.load_model("model/gender_model.h5")
+net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+layer_names = net.getLayerNames()
+output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
-def gen(camera):
+def detect_objects(frame):
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(output_layers)
+    class_ids = []
+    confidences = []
+    boxes = []
+    for out in outs:
+        for detection in out:
+            for obj in detection:
+                scores = obj[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5:
+                    center_x = int(obj[0] * frame.shape[1])
+                    center_y = int(obj[1] * frame.shape[0])
+                    w = int(obj[2] * frame.shape[1])
+                    h = int(obj[3] * frame.shape[0])
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    return indices, class_ids, boxes
+
+def classify_gender(frame):
+    resized_frame = cv2.resize(frame, (64, 64))
+    img_array = np.array(resized_frame) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+    prediction = gender_model.predict(img_array)
+    return "Male" if prediction[0][0] > 0.5 else "Female"
+
+def gen():
+    cap = cv2.VideoCapture(0)
     while True:
-        frame = camera.get_frame()
-        yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+        ret, frame = cap.read()
+        if not ret:
+            break
+        indices, class_ids, boxes = detect_objects(frame)
+        for i in indices:
+            i = i[0]
+            box = boxes[i]
+            x, y, w, h = box
+            label = classify_gender(frame[y:y+h, x:x+w])
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        frame = jpeg.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/')
 def index():
@@ -14,7 +67,7 @@ def index():
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(gen(Camera()), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
+    app.run(debug=True)
