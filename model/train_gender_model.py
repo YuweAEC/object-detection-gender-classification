@@ -1,44 +1,28 @@
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-# Data preprocessing
+train_dir = 'data/train/'
+validation_dir = 'data/validation/'
+
 train_datagen = ImageDataGenerator(rescale=1./255)
 validation_datagen = ImageDataGenerator(rescale=1./255)
 
 train_generator = train_datagen.flow_from_directory(
-    'data/train/',
-    target_size=(64, 64),
-    batch_size=32,
-    class_mode='binary')
+    train_dir, target_size=(64, 64), batch_size=32, class_mode='binary')
 
 validation_generator = validation_datagen.flow_from_directory(
-    'data/validation/',
-    target_size=(64, 64),
-    batch_size=32,
-    class_mode='binary')
+    validation_dir, target_size=(64, 64), batch_size=32, class_mode='binary')
 
-# Model definition
-model = Sequential([
-    Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
-    MaxPooling2D(pool_size=(2, 2)),
-    Conv2D(64, (3, 3), activation='relu'),
-    MaxPooling2D(pool_size=(2, 2)),
-    Flatten(),
-    Dense(128, activation='relu'),
-    Dense(1, activation='sigmoid')
+model = tf.keras.models.Sequential([
+    tf.keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Conv2D(64, (3, 3), activation='relu'),
+    tf.keras.layers.MaxPooling2D((2, 2)),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid')
 ])
 
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# Model training
-model.fit(
-    train_generator,
-    steps_per_epoch=100,
-    epochs=10,
-    validation_data=validation_generator,
-    validation_steps=50)
-
-# Save the trained model
-model.save("model/gender_model.h5")
+model.fit(train_generator, validation_data=validation_generator, epochs=10)
+model.save('model/gender_model.h5')
