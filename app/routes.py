@@ -1,11 +1,16 @@
-from flask import Flask, render_template, Response
+from flask import Blueprint, render_template, Response
 import cv2
 import tensorflow as tf
 import numpy as np
 
-app = Flask(__name__)
+# Initialize the blueprint for the routes
+app_routes = Blueprint('app_routes', __name__)
+
+# Load the pre-trained gender classification model
 gender_model = tf.keras.models.load_model("model/gender_model.h5")
-net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+
+# Load the YOLOv3 model for object detection
+net = cv2.dnn.readNet("yolov3/yolov3.weights", "yolov3/yolov3.cfg")
 layer_names = net.getLayerNames()
 output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
@@ -18,20 +23,19 @@ def detect_objects(frame):
     boxes = []
     for out in outs:
         for detection in out:
-            for obj in detection:
-                scores = obj[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5:
-                    center_x = int(obj[0] * frame.shape[1])
-                    center_y = int(obj[1] * frame.shape[0])
-                    w = int(obj[2] * frame.shape[1])
-                    h = int(obj[3] * frame.shape[0])
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5:
+                center_x = int(detection[0] * frame.shape[1])
+                center_y = int(detection[1] * frame.shape[0])
+                w = int(detection[2] * frame.shape[1])
+                h = int(detection[3] * frame.shape[0])
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
     indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
     return indices, class_ids, boxes
 
@@ -59,15 +63,12 @@ def gen():
         ret, jpeg = cv2.imencode('.jpg', frame)
         frame = jpeg.tobytes()
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-@app.route('/')
+@app_routes.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/video_feed')
+@app_routes.route('/video_feed')
 def video_feed():
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-if __name__ == '__main__':
-    app.run(debug=True)
